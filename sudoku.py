@@ -6,6 +6,7 @@ The sudoku is taken as a constraint satisfaction problem and AC3
 
 import copy
 import pandas as pd
+import random
 
 class Sudoku():
     """
@@ -42,18 +43,6 @@ class Sudoku():
                 print(f"| {self.field[j][i]} | {self.field[j+1][i]} | {self.field[j+2][i]} |", end="")
         print("")
         print("----" * 9)
-
-    def won(self):
-        """
-        Checks if sudoku is finished and returns True if it is finished, 
-        False if not finished.
-        """
-        # check if all fields contain a number
-        for i in range(self.height):
-            for j in range(self.width):
-                if not self.field[i][j].isnumeric():
-                    return False
-        return True
 
     def write_number(self, position, number):
         """
@@ -125,6 +114,7 @@ class SudokuSolver():
         """ Employ solving algorithms"""
         self.enforce_node_consistency()
         self.ac3()
+        return self.backtrack()
 
     def enforce_node_consistency(self):
         """
@@ -425,14 +415,135 @@ class SudokuSolver():
                     # check if cell is still in self.domains
                     if cell in self.domains:
                         # check if domain is empty
-                        if len(self.domains[(cell[0],cell[1])]) == 0:
+                        for neighbor in self.get_neighbors(cell):
+                            if neighbor in self.domains:
+                                if len(self.domains[neighbor]) == 0:
+                                    return False
+
+                    # add neighbors of cell to queue
+                    for neighbor in self.get_neighbors(cell):
+                        if neighbor in self.domains:
+                            queue.add(neighbor)
+        return True
+
+    def assignment_complete(self, assignment):
+        """
+        Return True if 'assignment' is complete, i.e., all cells of the Sudoku field
+        are assigned a number; return False otherwise.
+        """
+        # check if all fields contain a number
+        for i in range(self.sudoku.height):
+            for j in range(self.sudoku.width):
+                if not str(assignment[i][j]).isnumeric():
+                    return False
+        return True
+
+    def consistent(self, assignment):
+        """
+        Return True if 'assignment' is consistent, i.e., no conflicts of numbers
+        is apparent and no self.domains[cell] is empty
+        """
+        for i in range(self.sudoku.height):
+            for j in range(self.sudoku.width):
+                if str(assignment[i][j]).isnumeric():
+                    print(i, j)
+                    print(assignment)
+                    for neighbor in self.get_neighbors((i, j)):
+                        if assignment[i][j] == assignment[neighbor[0]][neighbor[1]]:
                             return False
 
-                # add neighbors of cell to queue
-                for neighbor in self.get_neighbors(cell):
-                    if neighbor in self.domains:
-                        queue.add(neighbor)
+        for cell in self.domains:
+            if len(self.domains[cell]) == 0:
+                return False
         return True
+
+    def select_unassigned_cell(self):
+        """
+        Return an unassigned cell. The cell with the least possible numbers 
+        available will be chosen. If there is a tie, a random cell from the 
+        tied cells is returned instead. 
+        """
+        fewest = []
+        mark = 10000
+        for cell in self.domains:
+            # check for lowest number of possible numbers for cell
+            if len(self.domains[cell]) < mark:
+                fewest = []
+                fewest.append(cell)
+                mark = len(self.domains[cell])
+            elif len(self.domains[cell]) == mark:
+                fewest.append(cell)
+
+        # check if successful
+        if len(fewest) == 0:
+            print("Error in select_unassigned_cell")
+            return 1
+
+        # return random cell with fewest possibilites
+        return random.choice(fewest)
+
+    def backtrack(self):
+        """
+        Using Backtracking Seach, take as input a partial assignment for the 
+        Sudoku and return a complete assignment if possible to do so. 
+
+        `assignment` is a mapping from cell positions (keys) to numbers (values).
+
+        If no assignment is possible, return None.
+
+
+        function Backtrack(assignment, csp):
+            if assignment complete:
+                return assignment
+            var = Select-Unassigned-Var(assignment, csp)
+            for value in Domain-Values(var, assignment, csp):
+                if value consistent with assignment:
+                    add {var = value} to assignment
+                    # ac3
+                   # inferences = Inference(assignment, csp)
+                   # if inferences ≠ failure:
+                   #     add inferences to assignment
+                    result = Backtrack(assignment, csp)
+                    if result ≠ failure:
+                        return result
+                    remove {var = value} and inferences from assignment
+            return failure
+        """
+        # create backups
+        domains_backup = copy.deepcopy(self.domains)
+        field_backup = copy.deepcopy(self.sudoku.field)
+
+        # fill assignment with known values
+        #for cell in self.domains:
+        #    if len(self.domains[cell]) == 1:
+        #        self.update_domains(cell, self.domains[cell])
+        #assignment = self.sudoku.field
+
+        # check if assignment complete
+        if self.assignment_complete(self.sudoku.field):
+            return self.sudoku.field
+
+        cell = self.select_unassigned_cell()
+        for pos_value in self.domains[cell]:
+            self.update_domains(cell, pos_value)
+
+            if self.consistent(self.sudoku.field):
+                arcs = self.get_neighbors(cell)
+                consistency_enforced = self.ac3(arcs)
+                # add inferences
+                if consistency_enforced:
+                    for other_cell in self.domains:
+                        if len(self.domains[other_cell]) == 1:
+                            self.update_domains(cell, self.domains[cell])
+                result = self.backtrack()
+                if result is not None:
+                    return result
+
+                self.domains = domains_backup
+                self.sudoku.field = field_backup
+                self.domains[cell].remove(pos_value)
+        return None
+
 
 
     def read_from_file(self, file: str):
@@ -457,9 +568,9 @@ class SudokuSolver():
 def main():
     sudoku = Sudoku()
     solver = SudokuSolver(sudoku)
-    solver.read_from_file("sudokufield_expert1.csv")
+    solver.read_from_file("sudokufield_hellish2.csv")
     sudoku.print()
-    assignment = solver.solve()
+    solver.solve()
     print(solver.domains)
     sudoku.print()
 
